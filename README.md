@@ -26,7 +26,6 @@ wandb -login [API key]
 # Installing FlashAttention
 pip install flash-attn --no-build-isolation
 pip install faesm[flash_attn]
-conda create --name Qwen2.5_SFT python=3.12 -y
 
 # Set up `accelerate` for multi-GPU training (configure when prompted)
 accelerate config
