@@ -3,6 +3,7 @@ from datasets import Dataset, concatenate_datasets
 from collections import defaultdict
 from transformers import AutoTokenizer
 from config import get_model_config
+from config import get_data_config
 from tqdm import tqdm
 import random
 import argparse
@@ -104,7 +105,7 @@ def refine_fasta(input_fasta, output_fasta, max_length=4096):
     print(f"Refined FASTA written to {output_fasta}.")
     return refined_sequences
 
-def preprocess_fasta(file_path, tokenizer, max_length, max_tokens_per_batch, chunk_size=1000000, output_dir="data/tmp_chunks"):
+def preprocess_fasta(file_path, tokenizer, max_length, max_tokens_per_batch, chunk_size=1000000, batch_dir="data/tmp_chunks"):
     """
     Preprocess a FASTA file to create pre-batched data with batch_id based on max tokens per batch,
     excluding any sequences longer than 4096 characters. Also writes a _refined.fasta with the
@@ -173,7 +174,7 @@ def preprocess_fasta(file_path, tokenizer, max_length, max_tokens_per_batch, chu
 
         # Save chunk when size reaches chunk_size
         if len(chunked_data) >= chunk_size:
-            save_chunk_to_disk(chunked_data, chunk_count, output_dir)
+            save_chunk_to_disk(chunked_data, chunk_count, batch_dir)
             chunked_data = []
             chunk_count += 1
 
@@ -185,22 +186,20 @@ def preprocess_fasta(file_path, tokenizer, max_length, max_tokens_per_batch, chu
         chunked_data.extend(current_batch)
 
     if chunked_data:
-        save_chunk_to_disk(chunked_data, chunk_count, output_dir)
+        save_chunk_to_disk(chunked_data, chunk_count, batch_dir)
 
     print(f"Processed and saved {chunk_count + 1} chunks.")
 
 
-def merge_and_shuffle_batches(output_dir, train_dir, val_dir, shard_size=25000, val_ratio=0.005, seed=100):
+def merge_and_shuffle_batches(batch_dir, output_dir, shard_size=25000, seed=100):
     """
-    Merges and shuffles preprocessed batches from disk, splits them into training and validation datasets,
-    and saves them in the required format, with each shard as its own dataset.
+    Merges and shuffles preprocessed batches from disk and saves them in the required format, 
+    with each shard as its own dataset.
 
     Args:
-        output_dir (str): Path to the directory containing chunked batches.
-        train_dir (str): Directory to save training shards.
-        val_dir (str): Directory to save the validation dataset.
+        batch_dir (str): Path to the directory containing chunked batches.
+        output_dir (str): Directory to save training shards.
         shard_size (int): Number of batches per shard.
-        val_ratio (float): Proportion of batches to use for validation.
         seed (int): Random seed for reproducibility.
 
     Returns:
@@ -209,7 +208,7 @@ def merge_and_shuffle_batches(output_dir, train_dir, val_dir, shard_size=25000, 
     print("Merging and shuffling batches...")
 
     # Load all chunked datasets from disk
-    chunk_files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.startswith("chunk_")]
+    chunk_files = [os.path.join(batch_dir, f) for f in os.listdir(batch_dir) if f.startswith("chunk_")]
     datasets = [Dataset.load_from_disk(chunk_file) for chunk_file in chunk_files]
     merged_dataset = concatenate_datasets(datasets)
     print(f"Merged {len(datasets)} chunks into one dataset with {len(merged_dataset)} examples.")
@@ -230,34 +229,21 @@ def merge_and_shuffle_batches(output_dir, train_dir, val_dir, shard_size=25000, 
     rng = random.Random(seed)
     rng.shuffle(all_batches)
 
-    # Split into validation and training
-    val_count = max(1, int(len(all_batches) * val_ratio))
-    val_batches = all_batches[:val_count]
-    train_batches = all_batches[val_count:]
-
-    print(f"Selected {len(val_batches)} batches for validation and {len(train_batches)} for training.")
-
-    # Save validation dataset
-    print("Saving validation dataset...")
-    val_examples = [ex for batch in val_batches for ex in batch]
-    val_dataset = Dataset.from_list(val_examples)
-    val_dataset.save_to_disk(val_dir)
-
-    # Save training shards, each as its own dataset
-    print("Saving training shards...")
-    os.makedirs(train_dir, exist_ok=True)
+    # Save shards, each as its own dataset
+    print("Saving shards...")
+    os.makedirs(output_dir, exist_ok=True)
     shard_count = 0
-    for i in tqdm(range(0, len(train_batches), shard_size),desc="Saving training shards"):
-        shard_batches = train_batches[i:i + shard_size]
+    for i in tqdm(range(0, len(all_batches), shard_size),desc="Saving shards"):
+        shard_batches = all_batches[i:i + shard_size]
         shard_examples = [ex for batch in shard_batches for ex in batch]
 
         # Save each shard as its own dataset
         shard_dataset = Dataset.from_list(shard_examples)
-        shard_dir = os.path.join(train_dir, f"shard-{shard_count:05d}")
+        shard_dir = os.path.join(output_dir, f"shard-{shard_count:05d}")
         shard_dataset.save_to_disk(shard_dir)
         shard_count += 1
 
-    print(f"Training dataset saved with {shard_count} shards.")
+    print(f"Dataset saved with {shard_count} shards.")
 
 def main():
     parser = argparse.ArgumentParser(description="Process FASTA files for ESM-2 training")
@@ -265,26 +251,23 @@ def main():
     # Required arguments
     parser.add_argument("--input_fasta", type=str, required=True,
                         help="Path to the raw FASTA file")
-    parser.add_argument("--train_dir", type=str, required=True,
-                        help="Path to save the processed training dataset")
-    parser.add_argument("--val_dir", type=str, required=True,
-                        help="Path to save the processed validation dataset")
+    parser.add_argument("--output_dir", type=str, required=True,
+                        help="Path to save the processed dataset")
 
     # Optional arguments with defaults
-    parser.add_argument("--tmp_dir", type=str, default="data/tmp_chunks",
-                        help="Temporary directory for chunked FASTA outputs (default: data/tmp_chunks)")
-    parser.add_argument("--chunk_size", type=int, default=1000000,
-                        help="Number of sequences per chunk (default: 1,000,000)")
-    parser.add_argument("--shard_size", type=int, default=25000,
-                        help="Number of batches per dataset shard (default: 25,000)")
-    parser.add_argument("--val_ratio", type=float, default=0.005,
-                        help="Fraction of train set aside for validation (default: 0.005)")
+    data_config = get_data_config()
+    parser.add_argument("--tmp_dir", type=str, default=data_config["default_tmp_dir"],
+                        help="Temporary directory for chunked FASTA outputs")
+    parser.add_argument("--chunk_size", type=int, default=data_config["chunk_size"],
+                        help="Number of sequences per chunk")
+    parser.add_argument("--shard_size", type=int, default=data_config["default_shard_size"],
+                        help="Number of batches per dataset shard")
 
     args = parser.parse_args()
 
     # Load tokenizer and configuration
     config = get_model_config()
-    tokenizer = AutoTokenizer.model_name
+    tokenizer = AutoTokenizer.from_pretrained(config.model_name)
 
     # Infer max_length from max_position_embeddings
     max_length = config.max_position_embeddings - 2
@@ -292,12 +275,11 @@ def main():
 
     # Preprocess the FASTA file in chunks
     preprocess_fasta(args.input_fasta, tokenizer, max_length, max_tokens_per_batch, 
-                     chunk_size=args.chunk_size, output_dir=args.tmp_dir)
+                     chunk_size=args.chunk_size, batch_dir=args.tmp_dir)
 
-    # Merge and shuffle batches, create training and validation datasets
+    # Merge and shuffle batches, create dataset
     print("Merging, shuffling, and saving datasets...")
-    merge_and_shuffle_batches(args.tmp_dir, args.train_dir, args.val_dir, 
-                              shard_size=args.shard_size, val_ratio=args.val_ratio)
+    merge_and_shuffle_batches(args.tmp_dir, args.output_dir, shard_size=args.shard_size)
 
 if __name__ == "__main__":
     main()

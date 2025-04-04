@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoTokenizer, AutoConfig
 from faesm.esm import FAEsmForMaskedLM
-from config import CUSTOM_CONFIG
+from config import get_model_config
 
 
 def remove_bias_from_attention_linear_layernorm(model):
@@ -62,22 +62,25 @@ def initialize_model_and_tokenizer():
     Initializes the FAESM model and tokenizer with custom FullPreLN layers.
     Ensures compatibility with FAESM and trains a blank model.
     """
-    model_name = CUSTOM_CONFIG["model"]["model_name"]
+    model_config = get_model_config()  # Get the model configuration from the YAML file
+    model_name = model_config.model_name  # Use attribute access on the EsmConfig object
+
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     config = AutoConfig.from_pretrained(model_name)
-    config.max_position_embeddings = CUSTOM_CONFIG["model"]["max_position_embeddings"]
-    config.use_fa = CUSTOM_CONFIG["model"]["use_fa"]
-    config.emb_layer_norm_before = CUSTOM_CONFIG["model"]["emb_layer_norm_before"]
-    config.hidden_size = CUSTOM_CONFIG["model"]["hidden_size"]
-    config.intermediate_size = CUSTOM_CONFIG["model"]["intermediate_size"]
-    config.num_attention_heads = CUSTOM_CONFIG["model"]["num_attention_heads"]
-    config.num_hidden_layers = CUSTOM_CONFIG["model"]["num_layers"]
+    # Overwrite config attributes using the values from our model_config
+    config.max_position_embeddings = model_config.max_position_embeddings
+    config.use_fa = model_config.use_fa
+    config.emb_layer_norm_before = model_config.emb_layer_norm_before
+    config.hidden_size = model_config.hidden_size
+    config.intermediate_size = model_config.intermediate_size
+    config.num_attention_heads = model_config.num_attention_heads
+    config.num_hidden_layers = model_config.num_layers
 
-    # Initialize the base model
+    # Initialize the base model w/custom config
     model = FAEsmForMaskedLM(config)
 
-    # Remove biases
+    # Customize model further by removing biases and adding a loss in the forward pass
     model = remove_bias_from_attention_linear_layernorm(model)
 
     # Add loss calculation

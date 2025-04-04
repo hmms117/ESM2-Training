@@ -68,12 +68,10 @@ Before training, raw **FASTA files** must be converted into **batched, tokenized
 ```bash
 python src/data_processing.py \
   --input_fasta "<path_to_raw_fasta>" \
-  --train_dir "<path_to_processed_train_data>" \
-  --val_dir "<path_to_processed_val_data>" \
+  --output_dir "<path_to_processed_dataset>" \
   --tmp_dir "<path_to_tmp_chunks>" \
-  --chunk_size 1000000 \ # Default for num sequences per chunk
-  --shard_size 25000 \ # Default for num batches per shard
-  --val_ratio 0.005 # Default for fraction of train set aside for validation
+  --chunk_size 1000000 \
+  --shard_size 25000
 ```
 
 ---
