@@ -1,6 +1,7 @@
 import glob
 import os
 import argparse
+import torch
 import torch.distributed as dist
 from transformers import (
     TrainingArguments,
@@ -43,6 +44,15 @@ def main():
     if rank == 0:  # Print only on rank 0
         print("Initializing model and tokenizer...")
     model, tokenizer = initialize_model_and_tokenizer()
+
+    # Optionally compile the model for improved performance
+    if hasattr(torch, "compile"):
+        if rank == 0:
+            print("Compiling model with torch.compile...")
+        model = torch.compile(model)
+    else:
+        if rank == 0:
+            print("torch.compile is not available; skipping compilation")
 
     # Print model size (exclude bias terms set to None) only on rank 0
     if rank == 0:
