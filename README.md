@@ -17,6 +17,7 @@ conda install pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvi
 conda install -c conda-forge transformers datasets accelerate safetensors einops
 conda install ipykernel
 conda install pip
+uv pip install pytest
 python -m ipykernel install --user --name=faesm_training
 
 # For logging
