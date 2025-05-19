@@ -37,7 +37,7 @@ Before preprocessing, review and modify `src/config.py` as needed.
 
 This file defines **model architecture** and **training hyperparameters**, primarily inspired by:
 - [Evolutionary-scale prediction of atomic-level protein structure with a language model](https://www-science-org.ezp-prod1.hul.harvard.edu/doi/10.1126/science.ade2574)
-- [Cramming protein language Mmdel training in 24 GPU hours](https://www.biorxiv.org/content/10.1101/2024.05.14.594108v1)
+- [Cramming protein language Model training in 24 GPU hours](https://www.biorxiv.org/content/10.1101/2024.05.14.594108v1)
 
 ### **Key Parameters to Check:**
 
