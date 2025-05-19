@@ -108,6 +108,10 @@ def main():
         eval_dataset=val_dataset,   # normal HF dataset
         data_collator=data_collator,
         gradient_clipping=training_config["gradient_clipping"],
+        beta_1=training_config["optimizer"]["beta_1"],
+        beta_2=training_config["optimizer"]["beta_2"],
+        epsilon=training_config["optimizer"]["epsilon"],
+        weight_decay=training_config["optimizer"]["weight_decay"],
         model=model,
         args=training_args,
     )
