@@ -80,6 +80,15 @@ def initialize_model_and_tokenizer():
     # Initialize the base model w/custom config
     model = FAEsmForMaskedLM(config)
 
+    #< codex/add-largest-benefits-from-modded-m-nnogpt
+    # Zero initialize final projection layers for stability
+    for attr in ["lm_head", "classifier", "proj_out", "output_layer"]:
+        layer = getattr(model, attr, None)
+        if isinstance(layer, torch.nn.Linear):
+            torch.nn.init.zeros_(layer.weight)
+            if layer.bias is not None:
+                torch.nn.init.zeros_(layer.bias)
+
     # Zero-initialize output projection and classification layers
     if hasattr(model, "embed_out"):
         torch.nn.init.zeros_(model.embed_out.weight)
@@ -89,6 +98,7 @@ def initialize_model_and_tokenizer():
         torch.nn.init.zeros_(model.lm_head.weight)
         if getattr(model.lm_head, "bias", None) is not None:
             torch.nn.init.zeros_(model.lm_head.bias)
+
 
     # Customize model further by removing biases and adding a loss in the forward pass
     model = remove_bias_from_attention_linear_layernorm(model)

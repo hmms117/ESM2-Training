@@ -23,6 +23,10 @@ python -m ipykernel install --user --name=faesm_training
 # For logging
 pip install tensorboard
 
+# Install testing tools
+pip install uv
+uv pip install pytest
+
 # Installing FlashAttention
 pip install flash-attn --no-build-isolation
 pip install faesm[flash_attn]
