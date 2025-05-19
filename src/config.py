@@ -1,7 +1,10 @@
+import os
 import yaml
 from transformers import EsmConfig
 
-def load_config(config_path="config.yaml"):
+def load_config():
+    """Load the configuration YAML shipped with the package."""
+    config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
