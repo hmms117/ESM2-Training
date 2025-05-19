@@ -17,6 +17,7 @@ conda install pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvi
 conda install -c conda-forge transformers datasets accelerate safetensors einops
 conda install ipykernel
 conda install pip
+uv pip install pytest
 python -m ipykernel install --user --name=faesm_training
 
 # For logging
@@ -89,3 +90,15 @@ View training metrics with:
 ```bash
 tensorboard --logdir logs
 ```
+
+## Benefits from Modded Månnogpt
+
+This improvement in training speed has been brought about by the following techniques:
+
+* Modernized architecture: Rotary embeddings, QK-Norm, and ReLU²
+* The Muon optimizer
+* Untie head from embedding, use FP8 matmul for head, and softcap logits
+* Initialization of projection and classification layers to zero (muP-like)
+* Skip connections from embedding to every block as well as between blocks in U-net pattern
+* Extra embeddings which are mixed into the values in attention layers
+* FlexAttention with long-short sliding window attention pattern (inspired by Gemma 2) and window size warmup

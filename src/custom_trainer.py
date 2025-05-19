@@ -8,6 +8,8 @@ from transformers import Trainer
 from datasets import load_from_disk
 from time import time
 
+from muon_optimizer import Muon
+
 
 class ShardBatchIterable(IterableDataset):
     """
@@ -92,7 +94,19 @@ class ShardBatchIterable(IterableDataset):
         self.real_epoch += 1
 
 class CustomTrainer(Trainer):
-    def __init__(self, train_dataset, eval_dataset, data_collator, gradient_clipping, *args, **kwargs):
+    def __init__(
+        self,
+        train_dataset,
+        eval_dataset,
+        data_collator,
+        gradient_clipping,
+        beta_1,
+        beta_2,
+        epsilon,
+        weight_decay,
+        *args,
+        **kwargs,
+    ):
         super().__init__(
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
@@ -104,7 +118,22 @@ class CustomTrainer(Trainer):
         self.eval_dataset = eval_dataset
         self.data_collator = data_collator
         self.gradient_clipping = gradient_clipping
+        self.beta_1 = beta_1
+        self.beta_2 = beta_2
+        self.epsilon = epsilon
+        self.weight_decay = weight_decay
         self.true_global_step = 0
+
+    def create_optimizer(self):
+        if self.optimizer is None:
+            self.optimizer = Muon(
+                self.model.parameters(),
+                lr=self.args.learning_rate,
+                betas=(self.beta_1, self.beta_2),
+                eps=self.epsilon,
+                weight_decay=self.weight_decay,
+            )
+        return self.optimizer
 
     def group_by_batch(self, dataset):
         """
@@ -237,3 +266,16 @@ class CustomTrainer(Trainer):
 
         self.log(metrics)
         return metrics
+
+    def optimizer_step(
+        self,
+        epoch,
+        batch_idx,
+        optimizer,
+        optimizer_closure,
+        on_tpu=False,
+        using_native_amp=False,
+        using_lbfgs=False,
+    ):
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clipping)
+        optimizer.step(closure=optimizer_closure)
