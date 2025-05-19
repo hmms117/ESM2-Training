@@ -34,15 +34,15 @@ accelerate config
 ---
 ## Configuring Model & Training Hyperparameters
 
-Before preprocessing, review and modify `src/config.py` as needed.
+Before preprocessing, review and modify `src/config.yaml` as needed. Helper functions in `src/config.py` load these settings.
 
-This file defines **model architecture** and **training hyperparameters**, primarily inspired by:
+This YAML file defines **model architecture** and **training hyperparameters**, primarily inspired by:
 - [Evolutionary-scale prediction of atomic-level protein structure with a language model](https://www-science-org.ezp-prod1.hul.harvard.edu/doi/10.1126/science.ade2574)
 - [Cramming protein language Mmdel training in 24 GPU hours](https://www.biorxiv.org/content/10.1101/2024.05.14.594108v1)
 
 ### **Key Parameters to Check:**
 
-#### **Model Parameters (`CUSTOM_CONFIG["model"]` in `config.py`)**
+#### **Model Parameters (set in `config.yaml` and loaded via `get_model_config`)**
 Note: default values for `num_layers`, `num_attention_heads`, and `hidden_size` are set to recreate ESM-2 150M
 - `max_position_embeddings`: **4098** 
 - `num_layers`: **30** 
@@ -50,7 +50,7 @@ Note: default values for `num_layers`, `num_attention_heads`, and `hidden_size` 
 - `hidden_size`: **640** 
 - `use_fa`: **True** (enables FlashAttention)
 
-#### **Training Parameters (`CUSTOM_CONFIG["training"]` in `config.py`)**
+#### **Training Parameters (set in `config.yaml` and loaded via `get_training_config`)**
 - `learning_rate`: **4e-4**
 - `gradient_accumulation_steps`: **64**
 - `mlm_probability`: **0.25** 
@@ -58,7 +58,7 @@ Note: default values for `num_layers`, `num_attention_heads`, and `hidden_size` 
 - `warmup_steps`: **2000**
 - `mixed_precision`: **fp16**
 
-**Modify `src/config.py` before running preprocessing to ensure the correct settings.**
+**Modify `src/config.yaml` before running preprocessing to ensure the correct settings.**
 
 ---
 ## Preprocessing the Data
