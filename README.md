@@ -22,6 +22,10 @@ python -m ipykernel install --user --name=faesm_training
 # For logging
 pip install tensorboard
 
+# Install testing tools
+pip install uv
+uv pip install pytest
+
 # Installing FlashAttention
 pip install flash-attn --no-build-isolation
 pip install faesm[flash_attn]
@@ -89,3 +93,15 @@ View training metrics with:
 ```bash
 tensorboard --logdir logs
 ```
+
+## Benefits from Modded Månnogpt
+
+This improvement in training speed has been brought about by the following techniques:
+
+* Modernized architecture: Rotary embeddings, QK-Norm, and ReLU²
+* The Muon optimizer
+* Untie head from embedding, use FP8 matmul for head, and softcap logits
+* Initialization of projection and classification layers to zero (muP-like)
+* Skip connections from embedding to every block as well as between blocks in U-net pattern
+* Extra embeddings which are mixed into the values in attention layers
+* FlexAttention with long-short sliding window attention pattern (inspired by Gemma 2) and window size warmup

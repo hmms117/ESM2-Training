@@ -13,6 +13,7 @@ training:
   gradient_accumulation_steps: 64
   learning_rate: 0.0004
   optimizer:
+    type: muon
     beta_1: 0.99
     beta_2: 0.98
     epsilon: 1e-12

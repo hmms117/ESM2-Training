@@ -92,7 +92,7 @@ class ShardBatchIterable(IterableDataset):
         self.real_epoch += 1
 
 class CustomTrainer(Trainer):
-    def __init__(self, train_dataset, eval_dataset, data_collator, gradient_clipping, *args, **kwargs):
+    def __init__(self, train_dataset, eval_dataset, data_collator, gradient_clipping, optimizer_config=None, *args, **kwargs):
         super().__init__(
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
@@ -104,7 +104,31 @@ class CustomTrainer(Trainer):
         self.eval_dataset = eval_dataset
         self.data_collator = data_collator
         self.gradient_clipping = gradient_clipping
+        self.optimizer_config = optimizer_config or {}
         self.true_global_step = 0
+
+    def create_optimizer(self):
+        if self.optimizer is None:
+            opt_type = str(self.optimizer_config.get("type", "adamw")).lower()
+            if opt_type == "muon":
+                from muon import Muon
+                lr = self.args.learning_rate
+                beta1 = self.optimizer_config.get("beta_1", 0.99)
+                beta2 = self.optimizer_config.get("beta_2", 0.98)
+                eps = self.optimizer_config.get("epsilon", 1e-12)
+                weight_decay = self.optimizer_config.get("weight_decay", 0.0)
+                self.optimizer = Muon(
+                    self.model.parameters(), lr=lr, beta1=beta1, beta2=beta2, eps=eps, weight_decay=weight_decay
+                )
+            else:
+                from torch.optim import AdamW
+                self.optimizer = AdamW(self.model.parameters(), lr=self.args.learning_rate)
+        return self.optimizer
+
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_closure, **kwargs):
+        if self.gradient_clipping:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clipping)
+        super().optimizer_step(epoch, batch_idx, optimizer, optimizer_closure, **kwargs)
 
     def group_by_batch(self, dataset):
         """

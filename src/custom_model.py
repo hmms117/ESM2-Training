@@ -80,6 +80,14 @@ def initialize_model_and_tokenizer():
     # Initialize the base model w/custom config
     model = FAEsmForMaskedLM(config)
 
+    # Zero initialize final projection layers for stability
+    for attr in ["lm_head", "classifier", "proj_out", "output_layer"]:
+        layer = getattr(model, attr, None)
+        if isinstance(layer, torch.nn.Linear):
+            torch.nn.init.zeros_(layer.weight)
+            if layer.bias is not None:
+                torch.nn.init.zeros_(layer.bias)
+
     # Customize model further by removing biases and adding a loss in the forward pass
     model = remove_bias_from_attention_linear_layernorm(model)
 
