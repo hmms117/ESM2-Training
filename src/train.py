@@ -1,7 +1,11 @@
 import glob
 import os
 import argparse
+import logging
+import sys
+
 import torch
+
 import torch.distributed as dist
 from transformers import (
     TrainingArguments,
@@ -19,6 +23,16 @@ def main():
     parser.add_argument("--val_dir", type=str, help="Path to the processed validation dataset.")
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(os.path.join("logs", "train.log")),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+    logger = logging.getLogger(__name__)
+
     # Check if distributed training is initialized
     is_distributed = dist.is_initialized()
     rank = dist.get_rank() if is_distributed else 0
@@ -31,18 +45,18 @@ def main():
     shard_paths = sorted(glob.glob(os.path.join(train_dir, "shard-*")))
     if len(shard_paths) == 0:
         raise ValueError(f"No shards found in {train_dir}!")
-    if rank == 0:  # Print only on rank 0
-        print(f"Found {len(shard_paths)} shards for training in {train_dir}.")
+    if rank == 0:
+        logger.info(f"Found {len(shard_paths)} shards for training in {train_dir}.")
 
     # 3) Load the validation dataset as normal (assuming a single HF dataset folder)
     val_dataset_dir = args.val_dir
-    if rank == 0:  # Print only on rank 0
-        print(f"Loading validation dataset from {val_dataset_dir}")
+    if rank == 0:
+        logger.info(f"Loading validation dataset from {val_dataset_dir}")
     val_dataset = load_from_disk(val_dataset_dir)
 
     # 4) Initialize model and tokenizer
-    if rank == 0:  # Print only on rank 0
-        print("Initializing model and tokenizer...")
+    if rank == 0:
+        logger.info("Initializing model and tokenizer...")
     model, tokenizer = initialize_model_and_tokenizer()
 
     # Optionally compile the model for improved performance
@@ -57,7 +71,7 @@ def main():
     # Print model size (exclude bias terms set to None) only on rank 0
     if rank == 0:
         num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f"Model has {num_params} trainable parameters.")
+        logger.info(f"Model has {num_params} trainable parameters.")
 
     # 5) Data Collator
     data_collator = DataCollatorForLanguageModeling(
@@ -80,7 +94,7 @@ def main():
         logging_dir="./logs",
         logging_steps=training_config["logging_steps"],
         fp16=training_config["mixed_precision"] == "fp16",
-        report_to=["wandb"],
+        report_to=["tensorboard"],
         lr_scheduler_type=training_config["lr_scheduler"],
         dataloader_num_workers=training_config["dataloader_num_workers"],
         dataloader_pin_memory=training_config["dataloader_pin_memory"],
@@ -98,7 +112,7 @@ def main():
         args=training_args,
     )
     if rank == 0:
-        print("Starting training...")
+        logger.info("Starting training...")
     trainer.train()
 
 if __name__ == "__main__":

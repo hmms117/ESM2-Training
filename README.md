@@ -19,9 +19,8 @@ conda install ipykernel
 conda install pip
 python -m ipykernel install --user --name=faesm_training
 
-# For optional tracking
-pip install wandb
-wandb -login [API key]
+# For logging
+pip install tensorboard
 
 # Installing FlashAttention
 pip install flash-attn --no-build-isolation
@@ -83,4 +82,10 @@ After preprocessing, run the training script to fine-tune **ESM-2 models** with 
 accelerate launch --gpu_ids all src/train.py \
   --train_dir <train_dir> \
   --val_dir <val_dir>
+```
+
+View training metrics with:
+
+```bash
+tensorboard --logdir logs
 ```
