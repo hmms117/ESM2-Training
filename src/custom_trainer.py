@@ -1,6 +1,7 @@
 import math
 import random
 import torch
+import logging
 from torch.utils.data import get_worker_info
 from torch.utils.data import DataLoader, IterableDataset, DistributedSampler
 from collections import defaultdict
@@ -9,6 +10,8 @@ from datasets import load_from_disk
 from time import time
 
 from muon_optimizer import Muon
+
+logger = logging.getLogger(__name__)
 
 
 class ShardBatchIterable(IterableDataset):
@@ -58,11 +61,17 @@ class ShardBatchIterable(IterableDataset):
         rng.shuffle(shards)
 
         if self.rank == 0:  # Only rank 0 logs shard count
-            print(f"[Rank {self.rank}] Starting epoch {self.epoch}")
+            logger.info("[Rank %s] Starting epoch %s", self.rank, self.epoch)
 
         for shard_idx, shard_path in enumerate(shards):
             if self.rank == 0:  # Only rank 0 logs shard loading
-                print(f"[Rank {self.rank}] Loading shard {shard_idx + 1}/{len(shards)}: {shard_path}")
+                logger.info(
+                    "[Rank %s] Loading shard %s/%s: %s",
+                    self.rank,
+                    shard_idx + 1,
+                    len(shards),
+                    shard_path,
+                )
 
             # Load shard and group examples into batches
             shard_data = load_from_disk(shard_path)
@@ -94,8 +103,8 @@ class ShardBatchIterable(IterableDataset):
         self.real_epoch += 1
 
 class CustomTrainer(Trainer):
-     #<<<<< codex/add-largest-benefits-from-modded-m-nnogpt
-     def __init__(
+    #<<<<< codex/add-largest-benefits-from-modded-m-nnogpt
+    def __init__(
         self,
         train_dataset,
         eval_dataset,
@@ -105,7 +114,7 @@ class CustomTrainer(Trainer):
         beta_2,
         epsilon,
         weight_decay,
-        optimizer_config=None, 
+        optimizer_config=None,
         *args,
         **kwargs,
     ):
@@ -134,7 +143,6 @@ class CustomTrainer(Trainer):
         if self.optimizer is None:
             opt_type = str(self.optimizer_config.get("type", "adamw")).lower()
             if opt_type == "muon":
-                from muon import Muon
                 lr = self.args.learning_rate
                 beta1 = self.optimizer_config.get("beta_1", 0.99)
                 beta2 = self.optimizer_config.get("beta_2", 0.98)
@@ -153,14 +161,13 @@ class CustomTrainer(Trainer):
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clipping)
         super().optimizer_step(epoch, batch_idx, optimizer, optimizer_closure, **kwargs)
 
-
-            self.optimizer = Muon(
-                self.model.parameters(),
-                lr=self.args.learning_rate,
-                betas=(self.beta_1, self.beta_2),
-                eps=self.epsilon,
-                weight_decay=self.weight_decay,
-            )
+        self.optimizer = Muon(
+            self.model.parameters(),
+            lr=self.args.learning_rate,
+            betas=(self.beta_1, self.beta_2),
+            eps=self.epsilon,
+            weight_decay=self.weight_decay,
+        )
         return self.optimizer
 
 

@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--val_dir", type=str, help="Path to the processed validation dataset.")
     args = parser.parse_args()
 
+    os.makedirs("logs", exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
@@ -62,11 +63,11 @@ def main():
     # Optionally compile the model for improved performance
     if hasattr(torch, "compile"):
         if rank == 0:
-            print("Compiling model with torch.compile...")
+            logger.info("Compiling model with torch.compile...")
         model = torch.compile(model)
     else:
         if rank == 0:
-            print("torch.compile is not available; skipping compilation")
+            logger.info("torch.compile is not available; skipping compilation")
 
     # Print model size (exclude bias terms set to None) only on rank 0
     if rank == 0:
