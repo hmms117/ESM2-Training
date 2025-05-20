@@ -1,4 +1,6 @@
 import os
+import logging
+import sys
 from datasets import Dataset, concatenate_datasets
 from collections import defaultdict
 from transformers import AutoTokenizer
@@ -7,6 +9,8 @@ from config import get_data_config
 from tqdm import tqdm
 import random
 import argparse
+
+logger = logging.getLogger(__name__)
 
 
 def pad_batch(batch, max_length, pad_token_id):
@@ -42,7 +46,7 @@ def save_chunk_to_disk(chunk, chunk_idx, output_dir="data/tmp_chunks"):
     os.makedirs(output_dir, exist_ok=True)
     chunk_file = os.path.join(output_dir, f"chunk_{chunk_idx}.json")
     Dataset.from_list(chunk).save_to_disk(chunk_file)
-    print(f"Saved chunk {chunk_idx} to {chunk_file}")
+    logger.info("Saved chunk %s to %s", chunk_idx, chunk_file)
 
 def refine_fasta(input_fasta, output_fasta, max_length=4096):
     """
@@ -57,7 +61,7 @@ def refine_fasta(input_fasta, output_fasta, max_length=4096):
     Returns:
         dict: A dictionary of refined sequences {sequence_id: sequence}.
     """
-    print("Reading FASTA file...")
+    logger.info("Reading FASTA file...")
     refined_sequences = {}
     excluded_count = 0
     duplicate_count = 0
@@ -92,9 +96,9 @@ def refine_fasta(input_fasta, output_fasta, max_length=4096):
         else:
             excluded_count += 1
 
-    print(f"Excluded {excluded_count} sequences longer than {max_length} characters.")
-    print(f"Refined FASTA contains {len(refined_sequences)} sequences.")
-    print(f"Skipped {duplicate_count} duplicate IDs.")
+    logger.info("Excluded %s sequences longer than %s characters.", excluded_count, max_length)
+    logger.info("Refined FASTA contains %s sequences.", len(refined_sequences))
+    logger.info("Skipped %s duplicate IDs.", duplicate_count)
 
     # Write the refined sequences to a new FASTA file
     with open(output_fasta, "w") as out_f:
@@ -102,7 +106,7 @@ def refine_fasta(input_fasta, output_fasta, max_length=4096):
             out_f.write(f"{seq_id}\n")
             out_f.write(f"{seq}\n")
 
-    print(f"Refined FASTA written to {output_fasta}.")
+    logger.info("Refined FASTA written to %s.", output_fasta)
     return refined_sequences
 
 def preprocess_fasta(file_path, tokenizer, max_length, max_tokens_per_batch, chunk_size=1000000, batch_dir="data/tmp_chunks"):
@@ -134,7 +138,7 @@ def preprocess_fasta(file_path, tokenizer, max_length, max_tokens_per_batch, chu
     # 3) Sort sequences by length before tokenizing
     sorted_sequences = sorted(refined_sequences.items(), key=lambda x: len(x[1]))
 
-    print("Processing sequences in chunks...")
+    logger.info("Processing sequences in chunks...")
     chunked_data = []
     chunk_count = 0
     batch_id = 0
@@ -188,7 +192,7 @@ def preprocess_fasta(file_path, tokenizer, max_length, max_tokens_per_batch, chu
     if chunked_data:
         save_chunk_to_disk(chunked_data, chunk_count, batch_dir)
 
-    print(f"Processed and saved {chunk_count + 1} chunks.")
+    logger.info("Processed and saved %s chunks.", chunk_count + 1)
 
 
 def merge_and_shuffle_batches(batch_dir, output_dir, shard_size=25000, seed=100):
@@ -205,16 +209,20 @@ def merge_and_shuffle_batches(batch_dir, output_dir, shard_size=25000, seed=100)
     Returns:
         None
     """
-    print("Merging and shuffling batches...")
+    logger.info("Merging and shuffling batches...")
 
     # Load all chunked datasets from disk
     chunk_files = [os.path.join(batch_dir, f) for f in os.listdir(batch_dir) if f.startswith("chunk_")]
     datasets = [Dataset.load_from_disk(chunk_file) for chunk_file in chunk_files]
     merged_dataset = concatenate_datasets(datasets)
-    print(f"Merged {len(datasets)} chunks into one dataset with {len(merged_dataset)} examples.")
+    logger.info(
+        "Merged %s chunks into one dataset with %s examples.",
+        len(datasets),
+        len(merged_dataset),
+    )
 
     # Group by batch_id
-    print("Grouping dataset by batch_id...")
+    logger.info("Grouping dataset by batch_id...")
     batch_map = defaultdict(list)
     for example in tqdm(merged_dataset, desc="Grouping by batch_id"):
         batch_id = example["batch_id"]
@@ -222,15 +230,15 @@ def merge_and_shuffle_batches(batch_dir, output_dir, shard_size=25000, seed=100)
 
     # Convert batch_map into a list of batches
     all_batches = list(batch_map.values())
-    print(f"Total batches: {len(all_batches)}")
+    logger.info("Total batches: %s", len(all_batches))
 
     # Shuffle all batches
-    print("Shuffling batches...")
+    logger.info("Shuffling batches...")
     rng = random.Random(seed)
     rng.shuffle(all_batches)
 
     # Save shards, each as its own dataset
-    print("Saving shards...")
+    logger.info("Saving shards...")
     os.makedirs(output_dir, exist_ok=True)
     shard_count = 0
     for i in tqdm(range(0, len(all_batches), shard_size),desc="Saving shards"):
@@ -243,9 +251,20 @@ def merge_and_shuffle_batches(batch_dir, output_dir, shard_size=25000, seed=100)
         shard_dataset.save_to_disk(shard_dir)
         shard_count += 1
 
-    print(f"Dataset saved with {shard_count} shards.")
+    logger.info("Dataset saved with %s shards.", shard_count)
 
 def main():
+    if not logging.getLogger().hasHandlers():
+        os.makedirs("logs", exist_ok=True)
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            handlers=[
+                logging.FileHandler(os.path.join("logs", "data_processing.log")),
+                logging.StreamHandler(sys.stdout),
+            ],
+        )
+
     parser = argparse.ArgumentParser(description="Process FASTA files for ESM-2 training")
 
     # Required arguments
@@ -278,7 +297,7 @@ def main():
                      chunk_size=args.chunk_size, batch_dir=args.tmp_dir)
 
     # Merge and shuffle batches, create dataset
-    print("Merging, shuffling, and saving datasets...")
+    logger.info("Merging, shuffling, and saving datasets...")
     merge_and_shuffle_batches(args.tmp_dir, args.output_dir, shard_size=args.shard_size)
 
 if __name__ == "__main__":
