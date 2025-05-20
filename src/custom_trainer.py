@@ -10,16 +10,11 @@ from time import time
 
 from muon_optimizer import Muon
 
-
 class ShardBatchIterable(IterableDataset):
-    """
-    An IterableDataset that processes one shard at a time, sorts batches by length,
-    and distributes batches across GPUs using distributed sampling behavior.
-    """
-
+    """An IterableDataset that processes one shard at a time, sorts batches by length,
+    and distributes batches across GPUs using distributed sampling behavior."""
     def __init__(self, shard_paths, group_by_batch_fn, epoch, seed, rank, world_size, args, sort_batches_by_length=True):
-        """
-        Args:
+        """Args:
             shard_paths (list): Paths to .arrow shard files.
             group_by_batch_fn (function): Function to group examples by batch_id.
             epoch (int): Current epoch for shuffling.
@@ -41,61 +36,47 @@ class ShardBatchIterable(IterableDataset):
         self.sort_batches_by_length = sort_batches_by_length
 
     def __iter__(self):
-        # Worker info for multi-worker partitioning
         worker_info = get_worker_info()
         if worker_info is None:
-            # Single worker
             worker_id = 0
             num_workers = 1
         else:
-            # Multi-worker
             worker_id = worker_info.id
             num_workers = worker_info.num_workers
 
-        # Shuffle shards for each epoch
         rng = random.Random(self.seed + int(self.epoch))
         shards = self.shard_paths[:]
         rng.shuffle(shards)
 
-        if self.rank == 0:  # Only rank 0 logs shard count
+        if self.rank == 0:
             print(f"[Rank {self.rank}] Starting epoch {self.epoch}")
 
         for shard_idx, shard_path in enumerate(shards):
-            if self.rank == 0:  # Only rank 0 logs shard loading
+            if self.rank == 0:
                 print(f"[Rank {self.rank}] Loading shard {shard_idx + 1}/{len(shards)}: {shard_path}")
-
-            # Load shard and group examples into batches
             shard_data = load_from_disk(shard_path)
             examples = list(shard_data)
             batches = self.group_by_batch_fn(examples)
 
             if self.sort_batches_by_length:
-                batches.sort(key=lambda batch: len(batch[-1]["input_ids"]))  # Sort by input length
+                batches.sort(key=lambda batch: len(batch[-1]["input_ids"]))
 
-            # Distribute batches across workers
             total_batches = len(batches)
             batches_per_worker = total_batches // num_workers
-            worker_batches = batches[
-                worker_id * batches_per_worker : (worker_id + 1) * batches_per_worker
-            ]
+            worker_batches = batches[worker_id * batches_per_worker : (worker_id + 1) * batches_per_worker]
 
-            rng.shuffle(worker_batches)  # Shuffle batches within worker
+            rng.shuffle(worker_batches)
 
-            # Use DistributedSampler for rank-based partitioning
-            sampler = DistributedSampler(
-                worker_batches, num_replicas=self.world_size, rank=self.rank, shuffle=False
-            )
+            sampler = DistributedSampler(worker_batches, num_replicas=self.world_size, rank=self.rank, shuffle=False)
             sampler.set_epoch(self.real_epoch)
 
             for batch_idx in sampler:
                 yield worker_batches[batch_idx]
-        
-        # Increment the epoch counter
+
         self.real_epoch += 1
 
 class CustomTrainer(Trainer):
-     #<<<<< codex/add-largest-benefits-from-modded-m-nnogpt
-     def __init__(
+    def __init__(
         self,
         train_dataset,
         eval_dataset,
@@ -105,11 +86,10 @@ class CustomTrainer(Trainer):
         beta_2,
         epsilon,
         weight_decay,
-        optimizer_config=None, 
+        optimizer_config=None,
         *args,
         **kwargs,
     ):
-
         super().__init__(
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
@@ -121,9 +101,7 @@ class CustomTrainer(Trainer):
         self.eval_dataset = eval_dataset
         self.data_collator = data_collator
         self.gradient_clipping = gradient_clipping
-
         self.optimizer_config = optimizer_config or {}
-
         self.beta_1 = beta_1
         self.beta_2 = beta_2
         self.epsilon = epsilon
@@ -153,22 +131,8 @@ class CustomTrainer(Trainer):
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clipping)
         super().optimizer_step(epoch, batch_idx, optimizer, optimizer_closure, **kwargs)
 
-
-            self.optimizer = Muon(
-                self.model.parameters(),
-                lr=self.args.learning_rate,
-                betas=(self.beta_1, self.beta_2),
-                eps=self.epsilon,
-                weight_decay=self.weight_decay,
-            )
-        return self.optimizer
-
-
     def group_by_batch(self, dataset):
-        """
-        Groups a list of examples into lumps keyed by 'batch_id'.
-        Each 'batch_id' becomes one list (lump).
-        """
+        """Groups a list of examples into lumps keyed by 'batch_id'."""
         grouped_data = defaultdict(list)
         for example in dataset:
             grouped_data[example["batch_id"]].append(example)
@@ -176,32 +140,25 @@ class CustomTrainer(Trainer):
 
     @staticmethod
     def create_collate_fn(base_collator, keys_to_remove=None):
-        """
-        Returns a collate function that removes unwanted keys from each example,
-        then calls 'base_collator' on the cleaned examples.
-        """
+        """Returns a collate function that removes unwanted keys then calls the base collator."""
         if keys_to_remove is None:
             keys_to_remove = []
 
         def custom_collate_fn(batch_list):
-            lumps = batch_list[0]  # Batch size is 1, so this unpacks the single lump
+            lumps = batch_list[0]
             for ex in lumps:
                 for key in keys_to_remove:
                     ex.pop(key, None)
             return base_collator(lumps)
 
         return custom_collate_fn
-    
+
     def training_step(self, model, inputs, num_items_in_batch=None):
         loss = super().training_step(model, inputs, num_items_in_batch)
-        loss = loss/self.args.gradient_accumulation_steps
+        loss = loss / self.args.gradient_accumulation_steps
         return loss
 
     def get_train_dataloader(self):
-        """
-        Uses the updated ShardBatchIterable to load one shard at a time,
-        sort batches by length, and distribute them across processes.
-        """
         if not isinstance(self.train_dataset, list):
             return super().get_train_dataloader()
 
@@ -212,10 +169,10 @@ class CustomTrainer(Trainer):
             group_by_batch_fn=self.group_by_batch,
             epoch=epoch,
             seed=self.args.seed,
-            rank=self.args.local_rank,  # GPU rank
-            world_size=self.args.world_size,  # Total number of GPUs
-            args=self.args,  # Pass the training arguments here
-            sort_batches_by_length=True,  # Sort pre-batched lumps by length
+            rank=self.args.local_rank,
+            world_size=self.args.world_size,
+            args=self.args,
+            sort_batches_by_length=True,
         )
 
         collate_fn = self.create_collate_fn(
@@ -225,19 +182,17 @@ class CustomTrainer(Trainer):
 
         return DataLoader(
             shard_iterable,
-            batch_size=1,  # Each lump (pre-batched examples) is treated as one batch
+            batch_size=1,
             shuffle=False,
             collate_fn=collate_fn,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.dataloader_pin_memory,
             prefetch_factor=self.args.dataloader_prefetch_factor,
         )
+
     def get_eval_dataloader(self, eval_dataset=None):
-        """
-        Simple evaluation data loader (single GPU). No distributed evaluation.
-        """
         eval_dataset = eval_dataset or self.eval_dataset
-        all_ex = list(eval_dataset)  # Load all examples into memory
+        all_ex = list(eval_dataset)
         grouped = self.group_by_batch(all_ex)
 
         collate_fn = self.create_collate_fn(
@@ -253,11 +208,7 @@ class CustomTrainer(Trainer):
             num_workers=self.args.dataloader_num_workers,
         )
 
-    
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
-        """
-        Overridden for on-the-fly perplexity or other metrics, ignoring unmasked tokens.
-        """
         eval_dataset = eval_dataset or self.eval_dataset
         if eval_dataset is None:
             return {}
@@ -271,7 +222,6 @@ class CustomTrainer(Trainer):
 
         total_loss = 0.0
         total_masked_tokens = 0
-
         with torch.no_grad():
             for batch in eval_dataloader:
                 for k, v in batch.items():
