@@ -106,3 +106,77 @@ This improvement in training speed has been brought about by the following techn
 * Skip connections from embedding to every block as well as between blocks in U-net pattern
 * Extra embeddings which are mixed into the values in attention layers
 * FlexAttention with long-short sliding window attention pattern (inspired by Gemma 2) and window size warmup
+
+---
+## Setting Options
+
+Most hyper-parameters live in `src/config.yaml`.  Edit this file to change the
+model architecture or training settings.  The command line utilities expose the
+most common options as well.
+
+### Data processing
+
+```bash
+python src/data_processing.py \
+  --input_fasta path/to/input.fasta \
+  --output_dir data/processed \
+  --tmp_dir data/tmp_chunks \
+  --chunk_size 1000000 \
+  --shard_size 25000
+```
+
+`--chunk_size` controls how many sequences are written to each intermediate
+chunk, while `--shard_size` determines the number of pre-batched examples in
+each final shard.
+
+### Training
+
+```bash
+accelerate launch src/train.py \
+  --train_dir data/processed/train \
+  --val_dir data/processed/val
+```
+
+Changes to learning rate, optimiser type, or other defaults can be made by
+editing `src/config.yaml`.
+
+---
+## Running the Unit Tests
+
+After installing the development dependencies you can run the tests from the
+repository root:
+
+```bash
+pytest
+```
+
+The suite covers configuration loading, data processing helpers and the custom
+trainer.
+
+---
+## Iterative Testing on a Small Dataset
+
+A tiny FASTA file is provided at `tests/data/small.fasta` for quick experiments.
+Use it to verify the preprocessing and training workflow before launching large
+runs.
+
+1. **Preprocess the file**
+
+   ```bash
+   python src/data_processing.py \
+     --input_fasta tests/data/small.fasta \
+     --output_dir tests/data/processed_test
+   ```
+
+2. **Run a short training job** (set small values for `total_steps` and
+   `save_steps` in `src/config.yaml`):
+
+   ```bash
+   accelerate launch --num_processes 1 src/train.py \
+     --train_dir tests/data/processed_test \
+     --val_dir tests/data/processed_test
+   ```
+
+3. Inspect the logs in `logs/` and TensorBoard to evaluate changes.
+4. Update the code or configuration and repeat as needed.
+
