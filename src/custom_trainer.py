@@ -232,6 +232,58 @@ class CustomTrainer(Trainer):
             pin_memory=self.args.dataloader_pin_memory,
             prefetch_factor=self.args.dataloader_prefetch_factor,
         )
+
+    def get_train_eval_dataloader(self):
+        """Return a dataloader over the full training set for evaluation."""
+        if isinstance(self.train_dataset, list):
+            all_ex = []
+            for path in self.train_dataset:
+                ds = load_from_disk(path)
+                all_ex.extend(list(ds))
+        else:
+            all_ex = list(self.train_dataset)
+
+        grouped = self.group_by_batch(all_ex)
+        collate_fn = self.create_collate_fn(
+            base_collator=self.data_collator,
+            keys_to_remove=["batch_id", "id", "sequence_length"],
+        )
+
+        return DataLoader(
+            grouped,
+            batch_size=1,
+            shuffle=False,
+            collate_fn=collate_fn,
+            num_workers=self.args.dataloader_num_workers,
+        )
+
+    def _compute_perplexity(self, dataloader):
+        """Compute average loss and perplexity for a dataloader."""
+        model = self.model
+        device = self.args.device
+        model.eval()
+        model.to(device)
+
+        total_loss = 0.0
+        total_masked_tokens = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                for k, v in batch.items():
+                    batch[k] = v.to(device)
+                outputs = model(**batch)
+                loss = outputs["loss"] if isinstance(outputs, dict) else outputs
+
+                masked_tokens = (batch["labels"] != -100).sum().item()
+                total_loss += loss.item() * masked_tokens
+                total_masked_tokens += masked_tokens
+
+        if total_masked_tokens == 0:
+            return float("nan"), float("nan")
+
+        avg_loss = total_loss / total_masked_tokens
+        ppl = math.exp(avg_loss)
+        return avg_loss, ppl
     def get_eval_dataloader(self, eval_dataset=None):
         """
         Simple evaluation data loader (single GPU). No distributed evaluation.
@@ -263,35 +315,17 @@ class CustomTrainer(Trainer):
             return {}
 
         eval_dataloader = self.get_eval_dataloader(eval_dataset)
+        eval_loss, eval_ppl = self._compute_perplexity(eval_dataloader)
 
-        model = self.model
-        device = self.args.device
-        model.eval()
-        model.to(device)
+        train_dataloader = self.get_train_eval_dataloader()
+        train_loss, train_ppl = self._compute_perplexity(train_dataloader)
 
-        total_loss = 0.0
-        total_masked_tokens = 0
-
-        with torch.no_grad():
-            for batch in eval_dataloader:
-                for k, v in batch.items():
-                    batch[k] = v.to(device)
-                outputs = model(**batch)
-                loss = outputs["loss"] if isinstance(outputs, dict) else outputs
-
-                masked_tokens = (batch["labels"] != -100).sum().item()
-                total_loss += loss.item() * masked_tokens
-                total_masked_tokens += masked_tokens
-
-        metrics = {}
-        if total_masked_tokens > 0:
-            avg_loss = total_loss / total_masked_tokens
-            ppl = math.exp(avg_loss)
-            metrics[f"{metric_key_prefix}_perplexity"] = ppl
-            metrics[f"{metric_key_prefix}_loss"] = avg_loss
-        else:
-            metrics[f"{metric_key_prefix}_perplexity"] = float("nan")
-            metrics[f"{metric_key_prefix}_loss"] = float("nan")
+        metrics = {
+            f"{metric_key_prefix}_perplexity": eval_ppl,
+            f"{metric_key_prefix}_loss": eval_loss,
+            "train_perplexity": train_ppl,
+            "train_loss": train_loss,
+        }
 
         self.log(metrics)
         return metrics
